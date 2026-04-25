@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Search, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Search, BookOpen, Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 interface Doc { id: string; slug: string; title: string; category: string; summary: string | null; }
 
