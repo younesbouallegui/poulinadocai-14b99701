@@ -86,6 +86,14 @@ export default function Auth() {
             </Button>
           </form>
 
+          <div className="my-5 flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="h-px flex-1 bg-border" /> Demo <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button type="button" variant="outline" className="w-full gap-2" onClick={seedDemo} disabled={seeding}>
+            {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            Create demo admin account
+          </Button>
+
           <p className="mt-6 text-center text-xs text-muted-foreground">
             {t("auth.contactAdmin")}
           </p>
