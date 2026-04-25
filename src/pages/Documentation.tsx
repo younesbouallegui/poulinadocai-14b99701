@@ -15,13 +15,23 @@ export default function Documentation() {
   const [params, setParams] = useSearchParams();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [query, setQuery] = useState("");
+  const [seeding, setSeeding] = useState(false);
   const activeCat = params.get("category");
 
-  useEffect(() => {
+  const load = () =>
     supabase.from("documents").select("id, slug, title, category, summary").order("title").then(({ data }) => {
       setDocs((data as Doc[]) ?? []);
     });
-  }, []);
+
+  useEffect(() => { load(); }, []);
+
+  const seed = async () => {
+    setSeeding(true);
+    const { error } = await supabase.functions.invoke("seed-docs");
+    if (error) toast.error(error.message);
+    else { toast.success("Sample documentation indexed."); await load(); }
+    setSeeding(false);
+  };
 
   const filtered = useMemo(() => {
     let list = docs;
