@@ -9,7 +9,8 @@ import { Card } from "@/components/ui/card";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import logo from "@/assets/poulina-logo.png";
 
 export default function Auth() {
