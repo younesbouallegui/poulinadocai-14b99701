@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      certifications: {
+        Row: {
+          attempts_count: number
+          awarded_at: string
+          best_score: number
+          category: string
+          id: string
+          level: Database["public"]["Enums"]["skill_level"]
+          user_id: string
+        }
+        Insert: {
+          attempts_count?: number
+          awarded_at?: string
+          best_score?: number
+          category: string
+          id?: string
+          level: Database["public"]["Enums"]["skill_level"]
+          user_id: string
+        }
+        Update: {
+          attempts_count?: number
+          awarded_at?: string
+          best_score?: number
+          category?: string
+          id?: string
+          level?: Database["public"]["Enums"]["skill_level"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       document_chunks: {
         Row: {
           chunk_index: number
@@ -109,6 +139,151 @@ export type Database = {
         }
         Relationships: []
       }
+      quiz_attempts: {
+        Row: {
+          answers: Json
+          completed_at: string
+          id: string
+          level: Database["public"]["Enums"]["skill_level"]
+          quiz_id: string
+          score: number
+          user_id: string
+          weak_areas: Json | null
+        }
+        Insert: {
+          answers?: Json
+          completed_at?: string
+          id?: string
+          level?: Database["public"]["Enums"]["skill_level"]
+          quiz_id: string
+          score?: number
+          user_id: string
+          weak_areas?: Json | null
+        }
+        Update: {
+          answers?: Json
+          completed_at?: string
+          id?: string
+          level?: Database["public"]["Enums"]["skill_level"]
+          quiz_id?: string
+          score?: number
+          user_id?: string
+          weak_areas?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_attempts_quiz_id_fkey"
+            columns: ["quiz_id"]
+            isOneToOne: false
+            referencedRelation: "quizzes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quiz_questions: {
+        Row: {
+          correct_answer: string
+          created_at: string
+          explanation: string | null
+          id: string
+          options: Json
+          position: number
+          question_text: string
+          question_type: Database["public"]["Enums"]["question_type"]
+          quiz_id: string
+          related_document_id: string | null
+          weight: number
+        }
+        Insert: {
+          correct_answer: string
+          created_at?: string
+          explanation?: string | null
+          id?: string
+          options: Json
+          position?: number
+          question_text: string
+          question_type?: Database["public"]["Enums"]["question_type"]
+          quiz_id: string
+          related_document_id?: string | null
+          weight?: number
+        }
+        Update: {
+          correct_answer?: string
+          created_at?: string
+          explanation?: string | null
+          id?: string
+          options?: Json
+          position?: number
+          question_text?: string
+          question_type?: Database["public"]["Enums"]["question_type"]
+          quiz_id?: string
+          related_document_id?: string | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_questions_quiz_id_fkey"
+            columns: ["quiz_id"]
+            isOneToOne: false
+            referencedRelation: "quizzes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quiz_questions_related_document_id_fkey"
+            columns: ["related_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quizzes: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          document_id: string | null
+          id: string
+          passing_score: number
+          time_limit_minutes: number | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          document_id?: string | null
+          id?: string
+          passing_score?: number
+          time_limit_minutes?: number | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          document_id?: string | null
+          id?: string
+          passing_score?: number
+          time_limit_minutes?: number | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quizzes_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -157,6 +332,8 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "engineer" | "viewer"
+      question_type: "multiple_choice" | "scenario"
+      skill_level: "beginner" | "intermediate" | "advanced" | "production_ready"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -285,6 +462,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "engineer", "viewer"],
+      question_type: ["multiple_choice", "scenario"],
+      skill_level: ["beginner", "intermediate", "advanced", "production_ready"],
     },
   },
 } as const

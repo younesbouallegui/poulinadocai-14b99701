@@ -13,6 +13,10 @@ import Documentation from "./pages/Documentation";
 import DocumentView from "./pages/DocumentView";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
+import Quizzes from "./pages/Quizzes";
+import QuizTake from "./pages/QuizTake";
+import Skills from "./pages/Skills";
+import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -31,6 +35,10 @@ const App = () => (
               <Route path="/ask" element={<AppLayout><Dashboard /></AppLayout>} />
               <Route path="/docs" element={<AppLayout><Documentation /></AppLayout>} />
               <Route path="/docs/:slug" element={<AppLayout><DocumentView /></AppLayout>} />
+              <Route path="/quizzes" element={<AppLayout><Quizzes /></AppLayout>} />
+              <Route path="/quizzes/:id" element={<AppLayout><QuizTake /></AppLayout>} />
+              <Route path="/skills" element={<AppLayout><Skills /></AppLayout>} />
+              <Route path="/admin" element={<AppLayout><Admin /></AppLayout>} />
               <Route path="/settings" element={<AppLayout><Settings /></AppLayout>} />
               <Route path="*" element={<NotFound />} />
             </Routes>

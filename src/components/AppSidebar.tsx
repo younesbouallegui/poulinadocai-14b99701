@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, BookOpen, Sparkles, Settings } from "lucide-react";
+import { LayoutDashboard, BookOpen, Sparkles, Settings, GraduationCap, ClipboardCheck, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Sidebar,
@@ -12,11 +12,13 @@ import {
   SidebarHeader,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/contexts/AuthContext";
 import logo from "@/assets/poulina-logo.png";
 
 export function AppSidebar() {
   const { t } = useTranslation();
   const { state } = useSidebar();
+  const { isAdmin } = useAuth();
   const collapsed = state === "collapsed";
   const location = useLocation();
 
@@ -24,6 +26,9 @@ export function AppSidebar() {
     { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard },
     { title: t("nav.ask"), url: "/ask", icon: Sparkles },
     { title: t("nav.documentation"), url: "/docs", icon: BookOpen },
+    { title: t("nav.quizzes"), url: "/quizzes", icon: ClipboardCheck },
+    { title: t("nav.skills"), url: "/skills", icon: GraduationCap },
+    ...(isAdmin ? [{ title: t("nav.admin"), url: "/admin", icon: ShieldCheck }] : []),
     { title: t("nav.settings"), url: "/settings", icon: Settings },
   ];
 

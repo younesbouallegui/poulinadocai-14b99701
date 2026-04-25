@@ -10,8 +10,8 @@ interface AuthContextValue {
   roles: Role[];
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, displayName: string, language: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -54,24 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   };
 
-  const signUp = async (email: string, password: string, displayName: string, language: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/`,
-        data: { display_name: displayName, preferred_language: language },
-      },
-    });
-    return { error: error?.message ?? null };
-  };
-
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
+  const isAdmin = roles.includes("admin");
+
   return (
-    <AuthContext.Provider value={{ user, session, roles, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, roles, loading, signIn, signOut, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );
