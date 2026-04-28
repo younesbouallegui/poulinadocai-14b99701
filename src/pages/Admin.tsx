@@ -272,26 +272,6 @@ export default function Admin() {
           </div>
         )}
       </Card>
-        {byUser.size === 0 ? (
-          <div className="text-sm text-muted-foreground py-12 text-center">{t("admin.noData")}</div>
-        ) : (
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={distribution}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                <YAxis allowDecimals={false} stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                <Tooltip
-                  contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                />
-                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {distribution.map((d) => <Cell key={d.level} fill={levelColors[d.level]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </Card>
 
       {/* Weak areas */}
       {weakAreas.length > 0 && (
