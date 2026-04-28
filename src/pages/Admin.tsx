@@ -29,27 +29,52 @@ interface AttemptRow {
   profiles?: { display_name: string | null } | null;
 }
 
+interface ViolationRow {
+  id: string;
+  user_id: string;
+  quiz_id: string;
+  violation_type: string;
+  created_at: string;
+  profiles?: { display_name: string | null } | null;
+  quizzes?: { title: string } | null;
+}
+
 export default function Admin() {
   const { t } = useTranslation();
   const { isAdmin, loading: authLoading } = useAuth();
   const [certs, setCerts] = useState<CertRow[]>([]);
   const [attempts, setAttempts] = useState<AttemptRow[]>([]);
+  const [violations, setViolations] = useState<ViolationRow[]>([]);
+  const [quizMap, setQuizMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isAdmin) return;
     (async () => {
-      const [{ data: c }, { data: a }] = await Promise.all([
+      const [{ data: c }, { data: a }, { data: v }, { data: qz }] = await Promise.all([
         supabase.from("certifications").select("user_id, category, level, best_score, awarded_at"),
         supabase
           .from("quiz_attempts")
           .select("id, user_id, score, completed_at, weak_areas, quizzes(title, category)")
           .order("completed_at", { ascending: false })
           .limit(200),
+        supabase
+          .from("assessment_violations")
+          .select("id, user_id, quiz_id, violation_type, created_at")
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase.from("quizzes").select("id, title"),
       ]);
 
+      const qm = new Map((qz ?? []).map((q: any) => [q.id, q.title]));
+      setQuizMap(qm);
+
       // Resolve profile names
-      const userIds = Array.from(new Set([...(c ?? []).map((r: any) => r.user_id), ...(a ?? []).map((r: any) => r.user_id)]));
+      const userIds = Array.from(new Set([
+        ...(c ?? []).map((r: any) => r.user_id),
+        ...(a ?? []).map((r: any) => r.user_id),
+        ...(v ?? []).map((r: any) => r.user_id),
+      ]));
       let profileMap = new Map<string, string | null>();
       if (userIds.length) {
         const { data: profs } = await supabase.from("profiles").select("id, display_name").in("id", userIds);
@@ -58,6 +83,11 @@ export default function Admin() {
 
       setCerts((c ?? []).map((r: any) => ({ ...r, profiles: { display_name: profileMap.get(r.user_id) ?? null } })));
       setAttempts((a ?? []).map((r: any) => ({ ...r, profiles: { display_name: profileMap.get(r.user_id) ?? null } })));
+      setViolations((v ?? []).map((r: any) => ({
+        ...r,
+        profiles: { display_name: profileMap.get(r.user_id) ?? null },
+        quizzes: { title: qm.get(r.quiz_id) ?? "—" },
+      })));
       setLoading(false);
     })();
   }, [isAdmin]);
