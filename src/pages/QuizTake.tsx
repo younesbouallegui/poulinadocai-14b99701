@@ -149,7 +149,7 @@ export default function QuizTake() {
           user_id: user.id,
           quiz_id: quiz.id,
           violation_type: type,
-          details,
+          details: details as Record<string, any>,
         }]);
       } catch {/* ignore */}
     }
