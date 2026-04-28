@@ -146,25 +146,81 @@ export default function Admin() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-3 mb-8 animate-fade-up">
-        <Card className="p-6">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground mb-2">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 mb-8 animate-fade-up">
+        <Card className="p-5">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
             <ShieldCheck className="h-3.5 w-3.5" /> {t("admin.productionReady")}
           </div>
-          <div className="text-3xl font-semibold">{productionReadyCount}</div>
-          <div className="text-xs text-muted-foreground mt-1">/ {byUser.size} members assessed</div>
+          <div className="text-2xl font-semibold">{productionReadyCount}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">/ {byUser.size} assessed</div>
         </Card>
-        <Card className="p-6">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        <Card className="p-5">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
             <Activity className="h-3.5 w-3.5" /> {t("admin.totalAttempts")}
           </div>
-          <div className="text-3xl font-semibold">{totalAttempts}</div>
+          <div className="text-2xl font-semibold">{totalAttempts}</div>
         </Card>
-        <Card className="p-6">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        <Card className="p-5">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
             <Target className="h-3.5 w-3.5" /> {t("admin.avgScore")}
           </div>
-          <div className="text-3xl font-semibold">{avgScore}<span className="text-base text-muted-foreground">/100</span></div>
+          <div className="text-2xl font-semibold">{avgScore}<span className="text-sm text-muted-foreground">/100</span></div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            <ShieldAlert className="h-3.5 w-3.5 text-amber-500" /> {t("admin2.fraudCount")}
+          </div>
+          <div className="text-2xl font-semibold">{violations.length}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">last 100 events</div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> {t("admin2.passFail")}
+          </div>
+          <div className="text-2xl font-semibold">{passRate}%</div>
+          <div className="text-[11px] text-muted-foreground mt-1">{passedAttempts}/{totalAttempts} passed</div>
+        </Card>
+      </div>
+
+      {/* Pass/Fail + Monitoring */}
+      <div className="grid gap-4 md:grid-cols-2 mb-8 animate-fade-up">
+        <Card className="p-6">
+          <div className="flex items-center gap-2 text-sm font-semibold mb-4">
+            <Target className="h-4 w-4 text-primary" /> {t("admin2.passFail")}
+          </div>
+          {totalAttempts === 0 ? (
+            <div className="text-sm text-muted-foreground py-12 text-center">{t("admin.noData")}</div>
+          ) : (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={passFailData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                    <Cell fill="hsl(160 84% 39%)" />
+                    <Cell fill="hsl(0 84% 60%)" />
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-2 text-sm font-semibold mb-4">
+            <ShieldAlert className="h-4 w-4 text-amber-500" /> {t("admin2.monitoring")}
+          </div>
+          {violations.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-12 text-center">{t("admin2.noViolations")}</div>
+          ) : (
+            <div className="space-y-2">
+              {Object.entries(violationsByType).slice(0, 6).map(([type, count]) => (
+                <div key={type} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground capitalize">{type.replace(/_/g, " ")}</span>
+                  <Badge variant="secondary">{count}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
 
