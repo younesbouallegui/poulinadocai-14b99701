@@ -273,6 +273,31 @@ export default function Admin() {
         </Card>
       )}
 
+      {/* Violation logs */}
+      {violations.length > 0 && (
+        <div className="animate-fade-up mb-8">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">{t("admin2.violationLogs")}</h2>
+          <Card>
+            <div className="divide-y divide-border">
+              {violations.slice(0, 12).map((v) => (
+                <div key={v.id} className="flex items-center justify-between gap-4 px-5 py-3">
+                  <div className="min-w-0 flex items-center gap-3">
+                    <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate">{v.profiles?.display_name ?? v.user_id.slice(0, 8)}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {v.quizzes?.title} · {new Date(v.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] capitalize shrink-0">{v.violation_type.replace(/_/g, " ")}</Badge>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* Recent activity */}
       <div className="animate-fade-up">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">{t("admin.lastActivity")}</h2>
