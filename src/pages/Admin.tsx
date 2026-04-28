@@ -6,9 +6,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Card } from "@/components/ui/card";
 import { SkillBadge } from "@/components/SkillBadge";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ShieldCheck, Users, Activity, Target } from "lucide-react";
+import { Loader2, ShieldCheck, Users, Activity, Target, ShieldAlert, TrendingUp, Award } from "lucide-react";
 import { SkillLevel, levelOrder } from "@/lib/skill";
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from "recharts";
+import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell, PieChart, Pie, Legend } from "recharts";
 
 interface CertRow {
   user_id: string;
@@ -34,19 +34,29 @@ export default function Admin() {
   const { isAdmin, loading: authLoading } = useAuth();
   const [certs, setCerts] = useState<CertRow[]>([]);
   const [attempts, setAttempts] = useState<AttemptRow[]>([]);
+  const [violations, setViolations] = useState<any[]>([]);
+  const [quizzesMap, setQuizzesMap] = useState<Map<string, { title: string; passing_score: number }>>(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isAdmin) return;
     (async () => {
-      const [{ data: c }, { data: a }] = await Promise.all([
+      const [{ data: c }, { data: a }, { data: v }, { data: qz }] = await Promise.all([
         supabase.from("certifications").select("user_id, category, level, best_score, awarded_at"),
         supabase
           .from("quiz_attempts")
-          .select("id, user_id, score, completed_at, weak_areas, quizzes(title, category)")
+          .select("id, user_id, quiz_id, score, completed_at, weak_areas, quizzes(title, category)")
           .order("completed_at", { ascending: false })
           .limit(200),
+        supabase
+          .from("assessment_violations")
+          .select("id, user_id, quiz_id, violation_type, details, created_at")
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase.from("quizzes").select("id, title, passing_score"),
       ]);
+
+      setQuizzesMap(new Map((qz ?? []).map((q: any) => [q.id, { title: q.title, passing_score: q.passing_score }])));
 
       // Resolve profile names
       const userIds = Array.from(new Set([...(c ?? []).map((r: any) => r.user_id), ...(a ?? []).map((r: any) => r.user_id)]));
