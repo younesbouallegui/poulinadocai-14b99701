@@ -224,7 +224,7 @@ export default function Admin() {
               {Object.entries(violationsByType).slice(0, 6).map(([type, count]) => (
                 <div key={type} className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground capitalize">{type.replace(/_/g, " ")}</span>
-                  <Badge variant="secondary">{count}</Badge>
+                  <Badge variant="secondary">{String(count)}</Badge>
                 </div>
               ))}
             </div>
