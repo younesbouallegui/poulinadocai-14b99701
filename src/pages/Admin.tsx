@@ -112,6 +112,14 @@ export default function Admin() {
   const productionReadyCount = distribution.find((d) => d.level === "production_ready")?.count ?? 0;
   const totalAttempts = attempts.length;
   const avgScore = totalAttempts ? Math.round(attempts.reduce((s, a) => s + a.score, 0) / totalAttempts) : 0;
+  const passedAttempts = attempts.filter((a) => a.score >= 70).length;
+  const passRate = totalAttempts ? Math.round((passedAttempts / totalAttempts) * 100) : 0;
+  const passFailData = [
+    { name: t("admin2.passed"), value: passedAttempts },
+    { name: t("admin2.failed"), value: Math.max(0, totalAttempts - passedAttempts) },
+  ];
+  const violationsByType: Record<string, number> = {};
+  violations.forEach((v) => { violationsByType[v.violation_type] = (violationsByType[v.violation_type] ?? 0) + 1; });
 
   // Aggregate weak areas
   const weakMap = new Map<string, { id: string; title: string; slug: string; count: number }>();
