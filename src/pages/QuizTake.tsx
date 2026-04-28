@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,9 +10,38 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { SkillBadge } from "@/components/SkillBadge";
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  Lock,
+  Maximize,
+  ShieldAlert,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { scoreToLevel, highestLevel, SkillLevel } from "@/lib/skill";
+import {
+  attachInputBlockers,
+  attachViolationListeners,
+  enterFullscreen,
+  exitFullscreen,
+  isFullscreen,
+  shuffle,
+  ViolationType,
+} from "@/lib/antiCheat";
 
 interface Question {
   id: string;
@@ -31,6 +60,7 @@ interface Quiz {
   title: string;
   category: string;
   passing_score: number;
+  time_limit_minutes: number | null;
 }
 
 interface ResultDetail {
@@ -38,6 +68,8 @@ interface ResultDetail {
   userAnswer: string | null;
   correct: boolean;
 }
+
+const VIOLATION_LIMIT = 2;
 
 export default function QuizTake() {
   const { id } = useParams<{ id: string }>();
@@ -51,103 +83,265 @@ export default function QuizTake() {
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ score: number; level: SkillLevel; details: ResultDetail[]; weakDocs: { id: string; title: string; slug: string }[] } | null>(null);
+  const [started, setStarted] = useState(false);
+  const [result, setResult] = useState<{
+    score: number;
+    level: SkillLevel;
+    details: ResultDetail[];
+    weakDocs: { id: string; title: string; slug: string }[];
+    timeSpentSec: number;
+    violationsCount: number;
+    autoSubmitted: boolean;
+  } | null>(null);
 
+  const [violations, setViolations] = useState(0);
+  const [showWarning, setShowWarning] = useState(false);
+  const [warningMsg, setWarningMsg] = useState<string>("");
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const violationsRef = useRef(0);
+  const submittedRef = useRef(false);
+  const autoSubmittedRef = useRef(false);
+
+  const storageKey = useMemo(() => (id && user ? `quiz-progress:${user.id}:${id}` : null), [id, user]);
+
+  // Load quiz + questions, shuffle order, hydrate saved answers
   useEffect(() => {
     if (!id) return;
     (async () => {
       const [{ data: q }, { data: qs }] = await Promise.all([
-        supabase.from("quizzes").select("id, title, category, passing_score").eq("id", id).maybeSingle(),
+        supabase.from("quizzes").select("id, title, category, passing_score, time_limit_minutes").eq("id", id).maybeSingle(),
         supabase.from("quiz_questions").select("*").eq("quiz_id", id).order("position", { ascending: true }),
       ]);
+      const allQs = ((qs ?? []) as unknown as Question[]).map((qq) => ({
+        ...qq,
+        options: shuffle(qq.options),
+      }));
       setQuiz(q as Quiz | null);
-      setQuestions((qs ?? []) as unknown as Question[]);
+      setQuestions(shuffle(allQs));
       setLoading(false);
     })();
   }, [id]);
+
+  // Hydrate saved progress
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.answers) setAnswers(saved.answers);
+        if (typeof saved.current === "number") setCurrent(saved.current);
+      }
+    } catch {}
+  }, [storageKey]);
+
+  // Auto-save progress
+  useEffect(() => {
+    if (!storageKey || !started) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ answers, current, ts: Date.now() }));
+    } catch {}
+  }, [answers, current, storageKey, started]);
 
   const total = questions.length;
   const progress = useMemo(() => (total === 0 ? 0 : ((current + 1) / total) * 100), [current, total]);
   const answeredCount = Object.keys(answers).length;
 
-  const submit = async () => {
-    if (!quiz || !user) return;
-    if (answeredCount < total && !confirm(t("quiz.unanswered"))) return;
-    setSubmitting(true);
-    try {
-      let earned = 0;
-      let totalWeight = 0;
-      const details: ResultDetail[] = [];
-      const weakDocIds = new Set<string>();
+  const submit = useCallback(
+    async (opts?: { auto?: boolean }) => {
+      if (!quiz || !user || submittedRef.current) return;
+      if (!opts?.auto && answeredCount < total && !confirm(t("quiz.unanswered"))) return;
+      submittedRef.current = true;
+      setSubmitting(true);
+      const auto = !!opts?.auto;
+      autoSubmittedRef.current = auto;
+      try {
+        let earned = 0;
+        let totalWeight = 0;
+        const details: ResultDetail[] = [];
+        const weakDocIds = new Set<string>();
 
-      for (const q of questions) {
-        totalWeight += q.weight;
-        const userAns = answers[q.id] ?? null;
-        const correct = userAns === q.correct_answer;
-        if (correct) earned += q.weight;
-        else if (q.related_document_id) weakDocIds.add(q.related_document_id);
-        details.push({ question: q, userAnswer: userAns, correct });
-      }
+        for (const q of questions) {
+          totalWeight += q.weight;
+          const userAns = answers[q.id] ?? null;
+          const correct = userAns === q.correct_answer;
+          if (correct) earned += q.weight;
+          else if (q.related_document_id) weakDocIds.add(q.related_document_id);
+          details.push({ question: q, userAnswer: userAns, correct });
+        }
 
-      const score = totalWeight > 0 ? Math.round((earned / totalWeight) * 100) : 0;
-      const level = scoreToLevel(score);
+        const score = totalWeight > 0 ? Math.round((earned / totalWeight) * 100) : 0;
+        const level = scoreToLevel(score);
 
-      // Resolve weak doc titles
-      let weakDocs: { id: string; title: string; slug: string }[] = [];
-      if (weakDocIds.size) {
-        const { data } = await supabase
-          .from("documents")
-          .select("id, title, slug")
-          .in("id", Array.from(weakDocIds));
-        weakDocs = data ?? [];
-      }
+        let weakDocs: { id: string; title: string; slug: string }[] = [];
+        if (weakDocIds.size) {
+          const { data } = await supabase.from("documents").select("id, title, slug").in("id", Array.from(weakDocIds));
+          weakDocs = data ?? [];
+        }
 
-      // Save attempt
-      await supabase.from("quiz_attempts").insert({
-        user_id: user.id,
-        quiz_id: quiz.id,
-        score,
-        level,
-        weak_areas: weakDocs.map((d) => ({ id: d.id, title: d.title, slug: d.slug })),
-        answers: details.map((d) => ({ question_id: d.question.id, answer: d.userAnswer, correct: d.correct })),
-      });
-
-      // Upsert certification (best score / highest level wins)
-      const { data: existing } = await supabase
-        .from("certifications")
-        .select("id, best_score, level, attempts_count")
-        .eq("user_id", user.id)
-        .eq("category", quiz.category)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from("certifications")
-          .update({
-            best_score: Math.max(existing.best_score, score),
-            level: highestLevel(existing.level as SkillLevel, level),
-            attempts_count: (existing.attempts_count ?? 0) + 1,
-            awarded_at: new Date().toISOString(),
+        const { data: attemptInsert } = await supabase
+          .from("quiz_attempts")
+          .insert({
+            user_id: user.id,
+            quiz_id: quiz.id,
+            score,
+            level,
+            weak_areas: weakDocs.map((d) => ({ id: d.id, title: d.title, slug: d.slug })),
+            answers: details.map((d) => ({ question_id: d.question.id, answer: d.userAnswer, correct: d.correct })),
           })
-          .eq("id", existing.id);
-      } else {
-        await supabase.from("certifications").insert({
-          user_id: user.id,
-          category: quiz.category,
-          best_score: score,
-          level,
-          attempts_count: 1,
-        });
-      }
+          .select("id")
+          .maybeSingle();
 
-      setResult({ score, level, details, weakDocs });
-    } catch (err: any) {
-      toast.error(err.message ?? "Error");
-    } finally {
-      setSubmitting(false);
+        if (auto && attemptInsert?.id) {
+          await supabase.from("assessment_violations").insert({
+            user_id: user.id,
+            quiz_id: quiz.id,
+            attempt_id: attemptInsert.id,
+            violation_type: "auto_submit",
+            details: { reason: "violation_limit_exceeded", count: violationsRef.current },
+          });
+        }
+
+        const { data: existing } = await supabase
+          .from("certifications")
+          .select("id, best_score, level, attempts_count")
+          .eq("user_id", user.id)
+          .eq("category", quiz.category)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from("certifications")
+            .update({
+              best_score: Math.max(existing.best_score, score),
+              level: highestLevel(existing.level as SkillLevel, level),
+              attempts_count: (existing.attempts_count ?? 0) + 1,
+              awarded_at: new Date().toISOString(),
+            })
+            .eq("id", existing.id);
+        } else {
+          await supabase.from("certifications").insert({
+            user_id: user.id,
+            category: quiz.category,
+            best_score: score,
+            level,
+            attempts_count: 1,
+          });
+        }
+
+        const timeSpentSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
+        setResult({
+          score,
+          level,
+          details,
+          weakDocs,
+          timeSpentSec,
+          violationsCount: violationsRef.current,
+          autoSubmitted: auto,
+        });
+
+        if (storageKey) localStorage.removeItem(storageKey);
+        await exitFullscreen();
+      } catch (err: any) {
+        toast.error(err.message ?? "Error");
+        submittedRef.current = false;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [quiz, user, questions, answers, answeredCount, total, t, startedAt, storageKey]
+  );
+
+  const recordViolation = useCallback(
+    async (type: ViolationType | string, details?: Record<string, unknown>) => {
+      if (submittedRef.current || !started || !quiz || !user) return;
+      violationsRef.current += 1;
+      const count = violationsRef.current;
+      setViolations(count);
+
+      // Persist
+      try {
+        await supabase.from("assessment_violations").insert({
+          user_id: user.id,
+          quiz_id: quiz.id,
+          violation_type: String(type),
+          details: details ?? {},
+        });
+      } catch {}
+
+      if (count >= VIOLATION_LIMIT) {
+        setWarningMsg(t("quiz.violationTerminated"));
+        setShowWarning(true);
+        // auto-submit
+        setTimeout(() => submit({ auto: true }), 800);
+      } else {
+        setWarningMsg(t("quiz.violationWarning"));
+        setShowWarning(true);
+      }
+    },
+    [started, quiz, user, t, submit]
+  );
+
+  // Anti-cheat listeners (active only after start, before submit)
+  useEffect(() => {
+    if (!started || result) return;
+    const detachInputs = attachInputBlockers(document.body);
+    const detachViol = attachViolationListeners({
+      onViolation: (type, details) => recordViolation(type, details),
+    });
+    return () => {
+      detachInputs();
+      detachViol();
+    };
+  }, [started, result, recordViolation]);
+
+  // Timer
+  useEffect(() => {
+    if (!started || result || !quiz?.time_limit_minutes) return;
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev === null) return prev;
+        if (prev <= 1) {
+          clearInterval(interval);
+          submit({ auto: true });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [started, result, quiz, submit]);
+
+  const handleStart = async () => {
+    if (!quiz) return;
+    setStarted(true);
+    setStartedAt(Date.now());
+    if (quiz.time_limit_minutes) setTimeLeft(quiz.time_limit_minutes * 60);
+    await enterFullscreen(containerRef.current ?? document.documentElement);
+  };
+
+  const reEnterFullscreen = async () => {
+    setShowWarning(false);
+    if (!isFullscreen() && !submittedRef.current) {
+      await enterFullscreen(containerRef.current ?? document.documentElement);
     }
   };
 
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+  const formatDuration = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}m ${sec}s`;
+  };
+
+  // ---------- Loading / not found ----------
   if (loading) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-12 flex items-center gap-2 text-sm text-muted-foreground">
@@ -155,15 +349,15 @@ export default function QuizTake() {
       </div>
     );
   }
-
   if (!quiz) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-12">
-        <Button variant="ghost" onClick={() => navigate("/quizzes")}><ArrowLeft className="h-4 w-4 mr-1" /> {t("quiz.backToList")}</Button>
+        <Button variant="ghost" onClick={() => navigate("/quizzes")}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> {t("quiz.backToList")}
+        </Button>
       </div>
     );
   }
-
   if (questions.length === 0) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-12">
@@ -172,28 +366,47 @@ export default function QuizTake() {
     );
   }
 
+  // ---------- Result screen ----------
   if (result) {
-    const passed = result.score >= quiz.passing_score;
+    const passed = result.score >= quiz.passing_score && !result.autoSubmitted;
     return (
       <div className="mx-auto max-w-3xl px-6 py-12 animate-fade-up">
         <Card className="p-8 mb-6 glass">
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">{t("quiz.results")}</div>
           <h1 className="text-2xl font-display font-semibold tracking-tight">{quiz.title}</h1>
-          <div className="mt-6 grid grid-cols-3 gap-4">
+          <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <div className="text-xs text-muted-foreground">{t("quiz.yourScore")}</div>
-              <div className="text-3xl font-semibold mt-1">{result.score}<span className="text-base text-muted-foreground">/100</span></div>
+              <div className="text-3xl font-semibold mt-1">
+                {result.score}
+                <span className="text-base text-muted-foreground">/100</span>
+              </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t("quiz.levelAchieved")}</div>
-              <div className="mt-2"><SkillBadge level={result.level} /></div>
+              <div className="mt-2">
+                <SkillBadge level={result.level} />
+              </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">{t("quiz.passing")}</div>
-              <div className={`mt-2 inline-flex items-center gap-1.5 text-sm font-medium ${passed ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                {passed ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                {passed ? t("quiz.passed") : t("quiz.failed")}
+              <div className="text-xs text-muted-foreground">{t("quiz.timeSpent")}</div>
+              <div className="mt-1 text-lg font-medium">{formatDuration(result.timeSpentSec)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">{t("quiz.suspiciousActivity")}</div>
+              <div className={`mt-1 text-lg font-medium ${result.violationsCount > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                {result.violationsCount}
               </div>
+            </div>
+          </div>
+          <div className="mt-6">
+            <div
+              className={`inline-flex items-center gap-1.5 text-sm font-medium ${
+                passed ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+              }`}
+            >
+              {passed ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+              {result.autoSubmitted ? t("quiz.terminated") : passed ? t("quiz.passed") : t("quiz.failed")}
             </div>
           </div>
         </Card>
@@ -203,7 +416,11 @@ export default function QuizTake() {
             <div className="text-sm font-semibold mb-3">{t("quiz.reviewSuggested")}</div>
             <div className="flex flex-wrap gap-2">
               {result.weakDocs.map((d) => (
-                <Link key={d.id} to={`/docs/${d.slug}`} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-accent text-accent-foreground hover:bg-primary-soft transition-colors">
+                <Link
+                  key={d.id}
+                  to={`/docs/${d.slug}`}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-accent text-accent-foreground hover:bg-primary-soft transition-colors"
+                >
                   <BookOpen className="h-3 w-3" /> {d.title}
                 </Link>
               ))}
@@ -215,17 +432,32 @@ export default function QuizTake() {
           {result.details.map((d, i) => (
             <Card key={d.question.id} className="p-5">
               <div className="flex items-start gap-3">
-                {d.correct ? <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" /> : <XCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />}
+                {d.correct ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
+                )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-muted-foreground mb-1">{t("quiz.question")} {i + 1}</div>
+                  <div className="text-xs text-muted-foreground mb-1">
+                    {t("quiz.question")} {i + 1}
+                  </div>
                   <div className="font-medium">{d.question.question_text}</div>
                   <div className="mt-3 space-y-1 text-sm">
-                    <div><span className="text-muted-foreground">{t("quiz.yourAnswer")}: </span>{d.userAnswer ? d.question.options.find((o) => o.key === d.userAnswer)?.text ?? d.userAnswer : "—"}</div>
+                    <div>
+                      <span className="text-muted-foreground">{t("quiz.yourAnswer")}: </span>
+                      {d.userAnswer ? d.question.options.find((o) => o.key === d.userAnswer)?.text ?? d.userAnswer : "—"}
+                    </div>
                     {!d.correct && (
-                      <div><span className="text-muted-foreground">{t("quiz.correctAnswer")}: </span>{d.question.options.find((o) => o.key === d.question.correct_answer)?.text ?? d.question.correct_answer}</div>
+                      <div>
+                        <span className="text-muted-foreground">{t("quiz.correctAnswer")}: </span>
+                        {d.question.options.find((o) => o.key === d.question.correct_answer)?.text ?? d.question.correct_answer}
+                      </div>
                     )}
                     {d.question.explanation && (
-                      <div className="mt-2 text-muted-foreground"><span className="font-medium text-foreground">{t("quiz.explanation")}: </span>{d.question.explanation}</div>
+                      <div className="mt-2 text-muted-foreground">
+                        <span className="font-medium text-foreground">{t("quiz.explanation")}: </span>
+                        {d.question.explanation}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -235,70 +467,180 @@ export default function QuizTake() {
         </div>
 
         <div className="mt-8 flex gap-3">
-          <Button variant="outline" asChild><Link to="/quizzes">{t("quiz.backToList")}</Link></Button>
-          <Button asChild><Link to="/skills">{t("nav.skills")}</Link></Button>
+          <Button variant="outline" asChild>
+            <Link to="/quizzes">{t("quiz.backToList")}</Link>
+          </Button>
+          <Button asChild>
+            <Link to="/skills">{t("nav.skills")}</Link>
+          </Button>
         </div>
       </div>
     );
   }
 
+  // ---------- Pre-start instructions ----------
+  if (!started) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-12">
+        <Button variant="ghost" size="sm" asChild className="mb-4 -ml-2">
+          <Link to="/quizzes">
+            <ArrowLeft className="h-4 w-4 mr-1" /> {t("quiz.backToList")}
+          </Link>
+        </Button>
+        <Card className="p-8 animate-fade-up">
+          <Badge variant="outline" className="mb-3 text-[10px] uppercase tracking-wider">
+            {t(`docs.categories.${quiz.category}`, quiz.category)}
+          </Badge>
+          <h1 className="text-3xl font-display font-semibold tracking-tight">{quiz.title}</h1>
+          <div className="mt-6 grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <div className="text-xs text-muted-foreground">{t("quiz.questions")}</div>
+              <div className="text-lg font-semibold">{total}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">{t("quiz.passing")}</div>
+              <div className="text-lg font-semibold">{quiz.passing_score}%</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">{t("quiz.timeLimit")}</div>
+              <div className="text-lg font-semibold">{quiz.time_limit_minutes ?? "—"} {t("quiz.minutes")}</div>
+            </div>
+          </div>
+
+          <div className="mt-8 p-5 rounded-lg border border-amber-500/30 bg-amber-500/5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-400 mb-3">
+              <ShieldAlert className="h-4 w-4" /> {t("quiz.rulesTitle")}
+            </div>
+            <ul className="space-y-1.5 text-sm text-muted-foreground">
+              <li>• {t("quiz.ruleFullscreen")}</li>
+              <li>• {t("quiz.ruleNoCopy")}</li>
+              <li>• {t("quiz.ruleNoSwitch")}</li>
+              <li>• {t("quiz.ruleViolations")}</li>
+              <li>• {t("quiz.ruleAutoSave")}</li>
+            </ul>
+          </div>
+
+          <Button onClick={handleStart} size="lg" className="mt-6 w-full">
+            <Maximize className="h-4 w-4 mr-2" /> {t("quiz.startSecure")}
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  // ---------- Active assessment (full viewport) ----------
   const q = questions[current];
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12">
-      <div className="mb-6 animate-fade-in">
-        <Button variant="ghost" size="sm" asChild className="mb-4 -ml-2">
-          <Link to="/quizzes"><ArrowLeft className="h-4 w-4 mr-1" /> {t("quiz.backToList")}</Link>
-        </Button>
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <h1 className="text-2xl font-display font-semibold tracking-tight">{quiz.title}</h1>
-          <Badge variant="outline">{t(`docs.categories.${quiz.category}`, quiz.category)}</Badge>
+    <div
+      ref={containerRef}
+      className="fixed inset-0 z-[100] bg-background overflow-y-auto select-none"
+      style={{ userSelect: "none", WebkitUserSelect: "none" } as any}
+    >
+      {/* Top bar */}
+      <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto max-w-4xl px-6 py-3">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="min-w-0 flex items-center gap-3">
+              <Lock className="h-4 w-4 text-primary shrink-0" />
+              <h1 className="text-sm font-semibold truncate">{quiz.title}</h1>
+              <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
+                {t(`docs.categories.${quiz.category}`, quiz.category)}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3 text-sm shrink-0">
+              {timeLeft !== null && (
+                <div
+                  className={`inline-flex items-center gap-1.5 font-mono tabular-nums ${
+                    timeLeft < 60 ? "text-rose-500 animate-pulse" : "text-foreground"
+                  }`}
+                >
+                  <Clock className="h-4 w-4" /> {formatTime(timeLeft)}
+                </div>
+              )}
+              {violations > 0 && (
+                <Badge variant="destructive" className="gap-1">
+                  <ShieldAlert className="h-3 w-3" /> {violations}/{VIOLATION_LIMIT}
+                </Badge>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              {current + 1}/{total}
+            </span>
+            <Progress value={progress} className="h-1.5 flex-1" />
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              {answeredCount} {t("quiz.answered")}
+            </span>
+          </div>
         </div>
-        <div className="text-xs text-muted-foreground mb-2">
-          {t("quiz.question")} {current + 1} {t("quiz.of")} {total}
-        </div>
-        <Progress value={progress} className="h-1.5" />
       </div>
 
-      <Card className="p-6 animate-fade-up">
-        {q.question_type === "scenario" && (
-          <Badge variant="secondary" className="mb-3 text-[10px] uppercase tracking-wider">Scenario</Badge>
-        )}
-        <h2 className="text-lg font-medium mb-6 leading-relaxed">{q.question_text}</h2>
+      {/* Question body */}
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        <Card className="p-8 animate-fade-up">
+          {q.question_type === "scenario" && (
+            <Badge variant="secondary" className="mb-3 text-[10px] uppercase tracking-wider">
+              {t("quiz.scenario")}
+            </Badge>
+          )}
+          <div className="text-xs text-muted-foreground mb-2">
+            {t("quiz.question")} {current + 1} {t("quiz.of")} {total}
+          </div>
+          <h2 className="text-lg font-medium mb-6 leading-relaxed">{q.question_text}</h2>
 
-        <RadioGroup
-          value={answers[q.id] ?? ""}
-          onValueChange={(v) => setAnswers((prev) => ({ ...prev, [q.id]: v }))}
-          className="space-y-2"
-        >
-          {q.options.map((opt) => (
-            <Label
-              key={opt.key}
-              htmlFor={`${q.id}-${opt.key}`}
-              className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 hover:bg-accent/50 cursor-pointer transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-soft"
-            >
-              <RadioGroupItem id={`${q.id}-${opt.key}`} value={opt.key} className="mt-0.5" />
-              <span className="text-sm font-normal leading-relaxed">{opt.text}</span>
-            </Label>
-          ))}
-        </RadioGroup>
-      </Card>
+          <RadioGroup
+            value={answers[q.id] ?? ""}
+            onValueChange={(v) => setAnswers((prev) => ({ ...prev, [q.id]: v }))}
+            className="space-y-2"
+          >
+            {q.options.map((opt) => (
+              <Label
+                key={opt.key}
+                htmlFor={`${q.id}-${opt.key}`}
+                className="flex items-start gap-3 p-4 rounded-lg border border-border hover:border-primary/40 hover:bg-accent/50 cursor-pointer transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-soft"
+              >
+                <RadioGroupItem id={`${q.id}-${opt.key}`} value={opt.key} className="mt-0.5" />
+                <span className="text-sm font-normal leading-relaxed">{opt.text}</span>
+              </Label>
+            ))}
+          </RadioGroup>
+        </Card>
 
-      <div className="mt-6 flex items-center justify-between">
-        <Button variant="outline" disabled={current === 0} onClick={() => setCurrent((c) => c - 1)}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> {t("quiz.previous")}
-        </Button>
-        {current < total - 1 ? (
-          <Button onClick={() => setCurrent((c) => c + 1)}>
-            {t("quiz.next")} <ArrowRight className="h-4 w-4 ml-1" />
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <Button variant="outline" disabled={current === 0} onClick={() => setCurrent((c) => c - 1)}>
+            <ArrowLeft className="h-4 w-4 mr-1" /> {t("quiz.previous")}
           </Button>
-        ) : (
-          <Button onClick={submit} disabled={submitting}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-            {submitting ? t("quiz.submitting") : t("quiz.submit")}
-          </Button>
-        )}
+          <div className="flex items-center gap-2">
+            {current < total - 1 ? (
+              <Button onClick={() => setCurrent((c) => c + 1)}>
+                {t("quiz.next")} <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            ) : (
+              <Button onClick={() => submit()} disabled={submitting}>
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                {submitting ? t("quiz.submitting") : t("quiz.submit")}
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Violation warning dialog */}
+      <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <ShieldAlert className="h-5 w-5" /> {t("quiz.warningTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{warningMsg}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={reEnterFullscreen}>{t("quiz.understood")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
