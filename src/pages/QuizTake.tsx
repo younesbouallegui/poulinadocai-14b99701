@@ -196,13 +196,15 @@ export default function QuizTake() {
           .maybeSingle();
 
         if (auto && attemptInsert?.id) {
-          await supabase.from("assessment_violations").insert({
-            user_id: user.id,
-            quiz_id: quiz.id,
-            attempt_id: attemptInsert.id,
-            violation_type: "auto_submit",
-            details: { reason: "violation_limit_exceeded", count: violationsRef.current },
-          });
+          await supabase.from("assessment_violations").insert([
+            {
+              user_id: user.id,
+              quiz_id: quiz.id,
+              attempt_id: attemptInsert.id,
+              violation_type: "auto_submit",
+              details: { reason: "violation_limit_exceeded", count: violationsRef.current },
+            },
+          ]);
         }
 
         const { data: existing } = await supabase
@@ -264,12 +266,14 @@ export default function QuizTake() {
 
       // Persist
       try {
-        await supabase.from("assessment_violations").insert({
-          user_id: user.id,
-          quiz_id: quiz.id,
-          violation_type: String(type),
-          details: details ?? {},
-        });
+        await supabase.from("assessment_violations").insert([
+          {
+            user_id: user.id,
+            quiz_id: quiz.id,
+            violation_type: String(type),
+            details: details ?? {},
+          },
+        ]);
       } catch {}
 
       if (count >= VIOLATION_LIMIT) {
