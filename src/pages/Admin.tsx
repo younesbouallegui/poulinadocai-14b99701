@@ -100,6 +100,18 @@ export default function Admin() {
   const totalAttempts = attempts.length;
   const avgScore = totalAttempts ? Math.round(attempts.reduce((s, a) => s + a.score, 0) / totalAttempts) : 0;
 
+  // Pass / fail rates
+  let passed = 0;
+  attempts.forEach((a) => {
+    const p = quizzesMap.get((a as any).quiz_id)?.passing_score ?? 70;
+    if (a.score >= p) passed += 1;
+  });
+  const passRate = totalAttempts ? Math.round((passed / totalAttempts) * 100) : 0;
+  const passFailData = [
+    { name: t("quiz.passed"), value: passed, fill: "hsl(160 84% 39%)" },
+    { name: t("quiz.failed"), value: Math.max(totalAttempts - passed, 0), fill: "hsl(0 72% 60%)" },
+  ];
+
   // Aggregate weak areas
   const weakMap = new Map<string, { id: string; title: string; slug: string; count: number }>();
   attempts.forEach((a) => {
@@ -109,6 +121,9 @@ export default function Admin() {
     });
   });
   const weakAreas = Array.from(weakMap.values()).sort((a, b) => b.count - a.count).slice(0, 8);
+
+  const fraudCount = violations.length;
+  const usersWithViolations = new Set(violations.map((v) => v.user_id)).size;
 
   const levelColors: Record<SkillLevel, string> = {
     beginner: "hsl(var(--muted-foreground))",
