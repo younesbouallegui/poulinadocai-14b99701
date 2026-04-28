@@ -6,9 +6,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Card } from "@/components/ui/card";
 import { SkillBadge } from "@/components/SkillBadge";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ShieldCheck, Users, Activity, Target } from "lucide-react";
+import { Loader2, ShieldCheck, Users, Activity, Target, ShieldAlert, CheckCircle2, XCircle } from "lucide-react";
 import { SkillLevel, levelOrder } from "@/lib/skill";
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from "recharts";
+import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Cell, PieChart, Pie } from "recharts";
 
 interface CertRow {
   user_id: string;
