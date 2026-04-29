@@ -9,8 +9,7 @@ import { Card } from "@/components/ui/card";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { toast } from "sonner";
-import { Loader2, Sparkles } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Loader2 } from "lucide-react";
 import logo from "@/assets/poulina-logo.png";
 
 export default function Auth() {
@@ -20,7 +19,6 @@ export default function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [seeding, setSeeding] = useState(false);
 
   if (loading) return null;
   if (user) return <Navigate to="/" replace />;
@@ -29,27 +27,9 @@ export default function Auth() {
     e.preventDefault();
     setBusy(true);
     const { error } = await signIn(email, password);
-    if (error) toast.error(t("auth.invalid"));
+    if (error) toast.error(error);
     else navigate("/", { replace: true });
     setBusy(false);
-  };
-
-  const seedDemo = async () => {
-    setSeeding(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("seed-demo-user", { body: {} });
-      if (error) throw error;
-      const creds = data?.credentials;
-      if (creds) {
-        setEmail(creds.email);
-        setPassword(creds.password);
-        toast.success(`Demo account ready: ${creds.email}`);
-      }
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to create demo account");
-    } finally {
-      setSeeding(false);
-    }
   };
 
   return (
