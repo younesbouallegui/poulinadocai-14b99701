@@ -5,12 +5,10 @@ import { AppSidebar } from "./AppSidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
-import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
-import { LogOut } from "lucide-react";
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { user, loading, signOut } = useAuth();
+  const { user, loading } = useAuth();
   const { t } = useTranslation();
 
   if (loading) {
@@ -30,9 +28,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-1">
               <LanguageSwitcher />
               <ThemeToggle />
-              <Button variant="ghost" size="icon" onClick={signOut} aria-label={t("common.signOut")}>
-                <LogOut className="h-4 w-4" />
-              </Button>
             </div>
           </header>
           <main className="flex-1 min-w-0">{children}</main>
