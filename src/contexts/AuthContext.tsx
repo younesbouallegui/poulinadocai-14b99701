@@ -28,7 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setUser(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw) as MockUser;
+        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (parsed?.id && uuidRe.test(parsed.id)) setUser(parsed);
+        else localStorage.removeItem(STORAGE_KEY); // legacy non-UUID id → force re-login
+      }
     } catch {}
     setLoading(false);
   }, []);
