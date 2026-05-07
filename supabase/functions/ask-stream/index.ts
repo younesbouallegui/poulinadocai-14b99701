@@ -1,5 +1,6 @@
 // Edge function: ask-stream
-// Streams responses from NVIDIA-hosted Gemma model with optional RAG context + multimodal attachments.
+// Streams responses via Lovable AI Gateway (fast TTFT) with optional RAG + multimodal attachments.
+// Falls back to NVIDIA if LOVABLE_API_KEY is unavailable.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -8,20 +9,22 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const NVIDIA_API_KEY = Deno.env.get("NVIDIA_API_KEY")!;
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+const LOVABLE_MODEL = Deno.env.get("LOVABLE_MODEL") ?? "google/gemini-3-flash-preview";
+const NVIDIA_API_KEY = Deno.env.get("NVIDIA_API_KEY");
 const NVIDIA_MODEL = Deno.env.get("NVIDIA_MODEL") ?? "meta/llama-3.1-8b-instruct";
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 interface Attachment {
   name: string;
-  type: string; // mime
-  kind: "image" | "text"; // already-processed: image (data url) or extracted text
-  data: string; // image: data:...;base64,xxx | text: extracted plain text
+  type: string;
+  kind: "image" | "text";
+  data: string;
 }
 
 async function embed(text: string): Promise<number[] | null> {
+  if (!LOVABLE_API_KEY) return null;
   try {
     const r = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
       method: "POST",
@@ -50,14 +53,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // RAG context (best-effort)
+    // RAG context (best-effort, fast: 3 chunks)
     let context = "";
     let sources: any[] = [];
     const queryEmbedding = await embed(question);
     if (queryEmbedding) {
       const admin = createClient(SUPABASE_URL, SERVICE_KEY);
       const { data: matches } = await admin.rpc("match_document_chunks", {
-        query_embedding: queryEmbedding, match_count: 5,
+        query_embedding: queryEmbedding, match_count: 3,
       });
       if (matches?.length) {
         context = matches.map((m: any, i: number) =>
@@ -69,7 +72,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Build attachment context
     const textAttachments = attachments.filter(a => a.kind === "text");
     const imageAttachments = attachments.filter(a => a.kind === "image");
     const fileContext = textAttachments.length
@@ -86,7 +88,6 @@ If the answer is not present, say so honestly. Format in clean markdown.`;
       + (fileContext ? `${fileContext}\n\n---\n\n` : "")
       + `User question: ${question}`;
 
-    // Gemma via NVIDIA expects OpenAI-compatible chat completions
     const userContent: any = imageAttachments.length
       ? [
           { type: "text", text: userText },
@@ -100,37 +101,47 @@ If the answer is not present, say so honestly. Format in clean markdown.`;
       { role: "user", content: userContent },
     ];
 
-    const upstream = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    // Prefer Lovable AI Gateway (faster TTFT), fall back to NVIDIA.
+    const useLovable = !!LOVABLE_API_KEY;
+    const upstreamUrl = useLovable
+      ? "https://ai.gateway.lovable.dev/v1/chat/completions"
+      : "https://integrate.api.nvidia.com/v1/chat/completions";
+    const apiKey = useLovable ? LOVABLE_API_KEY! : NVIDIA_API_KEY!;
+    const model = useLovable ? LOVABLE_MODEL : NVIDIA_MODEL;
+
+    const upstream = await fetch(upstreamUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${NVIDIA_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       },
       body: JSON.stringify({
-        model: NVIDIA_MODEL,
+        model,
         messages,
         temperature: 0.4,
-        top_p: 0.9,
-        max_tokens: 1024,
         stream: true,
       }),
     });
 
     if (!upstream.ok || !upstream.body) {
       const errText = await upstream.text();
-      console.error("NVIDIA error:", upstream.status, errText);
-      return new Response(JSON.stringify({ error: `Upstream ${upstream.status}: ${errText.slice(0, 500)}` }), {
-        status: upstream.status === 429 ? 429 : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      console.error("Upstream error:", upstream.status, errText);
+      const status = upstream.status === 429 ? 429 : upstream.status === 402 ? 402 : 500;
+      const msg = upstream.status === 429
+        ? "Rate limit reached, please try again shortly."
+        : upstream.status === 402
+        ? "AI credits exhausted. Please add credits in Settings → Workspace → Usage."
+        : `Upstream ${upstream.status}: ${errText.slice(0, 300)}`;
+      return new Response(JSON.stringify({ error: msg }), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Pipe upstream SSE → client, prepending a "sources" event so the UI can render citations.
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        // Send sources first as a custom SSE event line
+        // Send sources event up-front so citations render alongside the streaming answer.
         controller.enqueue(encoder.encode(`event: sources\ndata: ${JSON.stringify(sources)}\n\n`));
         const reader = upstream.body!.getReader();
         try {
@@ -151,8 +162,9 @@ If the answer is not present, say so honestly. Format in clean markdown.`;
       headers: {
         ...corsHeaders,
         "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
       },
     });
   } catch (e) {
