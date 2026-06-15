@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { ThemeToggle } from "./ThemeToggle";
+import { HubSwitcher } from "./HubSwitcher";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "react-i18next";
@@ -25,7 +26,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2">
               <SidebarTrigger />
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              <HubSwitcher />
               <LanguageSwitcher />
               <ThemeToggle />
             </div>

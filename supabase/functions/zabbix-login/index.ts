@@ -1,0 +1,99 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { zabbixRpc, mapZabbixRole, zabbixUserIdToUuid } from "../_shared/zabbix.ts";
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const { username, password } = await req.json();
+    if (!username || !password) {
+      return new Response(JSON.stringify({ error: "Username and password required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 1) Authenticate against Zabbix
+    let zabbixToken: string;
+    try {
+      zabbixToken = await zabbixRpc("user.login", { username, password });
+    } catch (e) {
+      console.error("Zabbix login failed", e);
+      return new Response(
+        JSON.stringify({ error: "Invalid username or password. Please check your Zabbix credentials." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // 2) Fetch user profile (with role + groups)
+    const users = await zabbixRpc(
+      "user.get",
+      { output: "extend", selectRole: "extend", selectUsrgrps: "extend", filter: { username: [username] } },
+      zabbixToken,
+    );
+    const zu = users?.[0];
+    if (!zu) {
+      return new Response(JSON.stringify({ error: "User not found in Zabbix" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const platformUserId = await zabbixUserIdToUuid(zu.userid);
+    const role = mapZabbixRole(zu.roleid);
+    const email = zu.email || `${zu.userid}@zabbix.local`;
+    const displayName = [zu.name, zu.surname].filter(Boolean).join(" ").trim() || zu.username;
+
+    // 3) Mirror into profiles + user_roles (best effort)
+    const sb = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    await sb.from("profiles").upsert(
+      {
+        id: platformUserId,
+        display_name: displayName,
+        zabbix_userid: String(zu.userid),
+        zabbix_username: zu.username,
+        zabbix_role_id: String(zu.roleid ?? ""),
+        zabbix_groups: zu.usrgrps ?? [],
+        zabbix_email: email,
+        zabbix_name: zu.name ?? null,
+        zabbix_surname: zu.surname ?? null,
+      },
+      { onConflict: "id" },
+    );
+
+    // role rows: keep one row per role; ensure mapped role exists
+    await sb.from("user_roles").upsert(
+      { user_id: platformUserId, role },
+      { onConflict: "user_id,role" },
+    );
+
+    return new Response(
+      JSON.stringify({
+        zabbix_token: zabbixToken,
+        platform_user_id: platformUserId,
+        role,
+        user: {
+          userid: zu.userid,
+          username: zu.username,
+          name: zu.name ?? "",
+          surname: zu.surname ?? "",
+          email,
+          roleid: String(zu.roleid ?? ""),
+          usrgrps: zu.usrgrps ?? [],
+        },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (e) {
+    console.error(e);
+    return new Response(JSON.stringify({ error: String((e as Error).message ?? e) }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
