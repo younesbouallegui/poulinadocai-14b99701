@@ -152,6 +152,13 @@ export type Database = {
           id: string
           preferred_language: string
           updated_at: string
+          zabbix_email: string | null
+          zabbix_groups: Json | null
+          zabbix_name: string | null
+          zabbix_role_id: string | null
+          zabbix_surname: string | null
+          zabbix_userid: string | null
+          zabbix_username: string | null
         }
         Insert: {
           created_at?: string
@@ -159,6 +166,13 @@ export type Database = {
           id: string
           preferred_language?: string
           updated_at?: string
+          zabbix_email?: string | null
+          zabbix_groups?: Json | null
+          zabbix_name?: string | null
+          zabbix_role_id?: string | null
+          zabbix_surname?: string | null
+          zabbix_userid?: string | null
+          zabbix_username?: string | null
         }
         Update: {
           created_at?: string
@@ -166,6 +180,13 @@ export type Database = {
           id?: string
           preferred_language?: string
           updated_at?: string
+          zabbix_email?: string | null
+          zabbix_groups?: Json | null
+          zabbix_name?: string | null
+          zabbix_role_id?: string | null
+          zabbix_surname?: string | null
+          zabbix_userid?: string | null
+          zabbix_username?: string | null
         }
         Relationships: []
       }
@@ -313,6 +334,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sso_handoff_codes: {
+        Row: {
+          code_hash: string
+          created_at: string
+          expires_at: string
+          used_at: string | null
+          user_id: string
+          zabbix_token: string
+          zabbix_userid: string
+          zabbix_username: string | null
+        }
+        Insert: {
+          code_hash: string
+          created_at?: string
+          expires_at: string
+          used_at?: string | null
+          user_id: string
+          zabbix_token: string
+          zabbix_userid: string
+          zabbix_username?: string | null
+        }
+        Update: {
+          code_hash?: string
+          created_at?: string
+          expires_at?: string
+          used_at?: string | null
+          user_id?: string
+          zabbix_token?: string
+          zabbix_userid?: string
+          zabbix_username?: string | null
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {

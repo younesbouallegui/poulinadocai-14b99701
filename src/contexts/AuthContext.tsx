@@ -1,89 +1,145 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
-type Role = "admin" | "engineer" | "viewer";
+type Role = "admin" | "editor" | "viewer";
 
-interface MockUser {
-  id: string;
+interface ZabbixUser {
+  userid: string;
+  username: string;
+  name: string;
+  surname: string;
+  email: string;
+  roleid: string;
+  usrgrps: Array<{ usrgrpid: string; name?: string }>;
+}
+
+interface PlatformUser {
+  id: string; // deterministic UUID from zabbix userid
   email: string;
   user_metadata: { display_name: string };
 }
 
 interface AuthContextValue {
-  user: MockUser | null;
-  session: { user: MockUser } | null;
+  user: PlatformUser | null;
+  session: { user: PlatformUser } | null;
+  zabbixUser: ZabbixUser | null;
+  zabbixToken: string | null;
   roles: Role[];
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signIn: (username: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-const STORAGE_KEY = "mock_auth_user";
+const STORAGE_KEY = "zabbix_auth_session";
+const PING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+interface StoredSession {
+  user: PlatformUser;
+  zabbixUser: ZabbixUser;
+  zabbixToken: string;
+  role: Role;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<MockUser | null>(null);
+  const [state, setState] = useState<StoredSession | null>(null);
   const [loading, setLoading] = useState(true);
+  const pingTimer = useRef<number | null>(null);
 
+  // Hydrate from localStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as MockUser;
-        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (parsed?.id && uuidRe.test(parsed.id)) setUser(parsed);
-        else localStorage.removeItem(STORAGE_KEY); // legacy non-UUID id → force re-login
-      }
-    } catch {}
+      if (raw) setState(JSON.parse(raw) as StoredSession);
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+    }
     setLoading(false);
   }, []);
 
-  // Deterministic UUID v5-like derivation from email (so the same user always
-  // maps to the same UUID across sessions/devices, and so the value fits the
-  // `uuid` columns on quiz_attempts / certifications / etc.).
-  const emailToUuid = async (email: string): Promise<string> => {
-    const data = new TextEncoder().encode(`poulina-mock-auth:${email.toLowerCase().trim()}`);
-    const hashBuf = await crypto.subtle.digest("SHA-256", data);
-    const b = Array.from(new Uint8Array(hashBuf)).slice(0, 16);
-    // Set version (4) and variant bits to produce a valid UUID
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    const hex = b.map((x) => x.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  // Keep-alive ping while signed in
+  useEffect(() => {
+    if (!state?.zabbixToken) return;
+    const ping = async () => {
+      try {
+        const { data } = await supabase.functions.invoke("zabbix-ping", {
+          body: { zabbix_token: state.zabbixToken },
+        });
+        if (!data?.valid) {
+          await doSignOut("Session expired, please sign in again.");
+        }
+      } catch {
+        // network blip — ignore, try again next tick
+      }
+    };
+    pingTimer.current = window.setInterval(ping, PING_INTERVAL_MS);
+    return () => {
+      if (pingTimer.current) window.clearInterval(pingTimer.current);
+    };
+  }, [state?.zabbixToken]);
+
+  const doSignOut = async (reason?: string) => {
+    localStorage.removeItem(STORAGE_KEY);
+    setState(null);
+    if (reason && typeof window !== "undefined") {
+      // soft notification; toast may not be mounted here
+      try {
+        const { toast } = await import("sonner");
+        toast.error(reason);
+      } catch {}
+    }
   };
 
-  const signIn = async (email: string, password: string) => {
-    if (!email || !password) {
-      return { error: "Email and password are required" };
-    }
-    const id = await emailToUuid(email);
-    const display_name = email.split("@")[0];
-    const mockUser: MockUser = {
-      id,
-      email,
-      user_metadata: { display_name },
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(mockUser));
-    setUser(mockUser);
-    // Best-effort upsert a profile row so admin dashboards show a name.
+  const signIn = async (username: string, password: string) => {
+    if (!username || !password) return { error: "Username and password are required" };
     try {
-      const { supabase } = await import("@/integrations/supabase/client");
-      await supabase.from("profiles").upsert({ id, display_name }, { onConflict: "id" });
-    } catch {}
-    return { error: null };
+      const { data, error } = await supabase.functions.invoke("zabbix-login", {
+        body: { username, password },
+      });
+      if (error) {
+        // edge function returned non-2xx
+        const msg = (error as any)?.context?.error ?? error.message ?? "Sign-in failed";
+        return { error: msg };
+      }
+      if (!data?.zabbix_token) {
+        return { error: data?.error ?? "Invalid username or password. Please check your Zabbix credentials." };
+      }
+      const platformUser: PlatformUser = {
+        id: data.platform_user_id,
+        email: data.user.email,
+        user_metadata: {
+          display_name: [data.user.name, data.user.surname].filter(Boolean).join(" ").trim() || data.user.username,
+        },
+      };
+      const stored: StoredSession = {
+        user: platformUser,
+        zabbixUser: data.user,
+        zabbixToken: data.zabbix_token,
+        role: data.role,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      setState(stored);
+      return { error: null };
+    } catch (e: any) {
+      return { error: e?.message ?? "Sign-in failed" };
+    }
   };
 
   const signOut = async () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setUser(null);
+    await doSignOut();
   };
 
-  const roles: Role[] = user ? ["admin", "engineer", "viewer"] : [];
+  const user = state?.user ?? null;
+  const zabbixUser = state?.zabbixUser ?? null;
+  const zabbixToken = state?.zabbixToken ?? null;
+  const role = state?.role;
+  const roles: Role[] = role ? [role] : [];
   const session = user ? { user } : null;
-  const isAdmin = !!user;
+  const isAdmin = role === "admin";
 
   return (
-    <AuthContext.Provider value={{ user, session, roles, loading, signIn, signOut, isAdmin }}>
+    <AuthContext.Provider value={{ user, session, zabbixUser, zabbixToken, roles, loading, signIn, signOut, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );
