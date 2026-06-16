@@ -107,18 +107,24 @@ export default function QuizTake() {
 
   const storageKey = useMemo(() => (id && user ? `quiz-progress:${user.id}:${id}` : null), [id, user]);
 
-  // Load quiz + questions, shuffle order, hydrate saved answers
+  // Load quiz + questions (without correct_answer/explanation), shuffle, hydrate
   useEffect(() => {
     if (!id) return;
     (async () => {
       const [{ data: q }, { data: qs }] = await Promise.all([
         supabase.from("quizzes").select("id, title, category, passing_score, time_limit_minutes").eq("id", id).maybeSingle(),
-        supabase.from("quiz_questions").select("*").eq("quiz_id", id).order("position", { ascending: true }),
+        supabase
+          .from("quiz_questions")
+          .select("id, quiz_id, question_text, question_type, options, related_document_id, weight, position")
+          .eq("quiz_id", id)
+          .order("position", { ascending: true }),
       ]);
-      const allQs = ((qs ?? []) as unknown as Question[]).map((qq) => ({
+      const allQs = ((qs ?? []) as any[]).map((qq) => ({
         ...qq,
+        correct_answer: "",
+        explanation: null,
         options: shuffle(qq.options),
-      }));
+      })) as Question[];
       setQuiz(q as Quiz | null);
       setQuestions(shuffle(allQs));
       setLoading(false);
