@@ -43,11 +43,11 @@ export async function zabbixRpc(
   const headers: Record<string, string> = {
     "Content-Type": "application/json-rpc",
   };
-  // Zabbix 6.4+: bearer auth header. Older Zabbix: "auth" field in body.
-  if (auth) {
+  // Zabbix 6.4+ uses Bearer header; Zabbix 7.2+ rejects "auth" in body.
+  // user.login and apiinfo.version never take auth.
+  const noAuthMethods = new Set(["user.login", "apiinfo.version"]);
+  if (auth && !noAuthMethods.has(method)) {
     headers.Authorization = `Bearer ${auth}`;
-    // also include body auth for compatibility with older Zabbix
-    body.auth = auth;
   }
   let lastNonJson = "";
   for (const endpoint of getZabbixApiCandidates(configuredZabbixUrl)) {
