@@ -27,7 +27,17 @@ export async function zabbixRpc(
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Zabbix ${method} returned non-JSON (status ${res.status}). ` +
+      `Check ZABBIX_API_URL — it must end with /api_jsonrpc.php. ` +
+      `Response starts with: ${text.slice(0, 80)}`,
+    );
+  }
   if (json.error) {
     throw new Error(`Zabbix ${method} failed: ${json.error.data ?? json.error.message}`);
   }
