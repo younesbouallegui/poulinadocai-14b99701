@@ -165,85 +165,47 @@ export default function QuizTake() {
       const auto = !!opts?.auto;
       autoSubmittedRef.current = auto;
       try {
-        let earned = 0;
-        let totalWeight = 0;
-        const details: ResultDetail[] = [];
-        const weakDocIds = new Set<string>();
+        const { data: rpcData, error: rpcErr } = await supabase.rpc("score_quiz_attempt", {
+          p_quiz_id: quiz.id,
+          p_answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? null })),
+          p_auto: auto,
+          p_violations_count: violationsRef.current,
+        });
+        if (rpcErr) throw rpcErr;
+        const payload = rpcData as {
+          attempt_id: string;
+          score: number;
+          level: SkillLevel;
+          weak_doc_ids: string[];
+          details: Array<{
+            question_id: string;
+            user_answer: string | null;
+            correct_answer: string;
+            explanation: string | null;
+            correct: boolean;
+          }>;
+        };
 
-        for (const q of questions) {
-          totalWeight += q.weight;
-          const userAns = answers[q.id] ?? null;
-          const correct = userAns === q.correct_answer;
-          if (correct) earned += q.weight;
-          else if (q.related_document_id) weakDocIds.add(q.related_document_id);
-          details.push({ question: q, userAnswer: userAns, correct });
-        }
-
-        const score = totalWeight > 0 ? Math.round((earned / totalWeight) * 100) : 0;
-        const level = scoreToLevel(score);
+        const detailsByQid = new Map(payload.details.map((d) => [d.question_id, d]));
+        const details: ResultDetail[] = questions.map((q) => {
+          const d = detailsByQid.get(q.id);
+          return {
+            question: { ...q, correct_answer: d?.correct_answer ?? "", explanation: d?.explanation ?? null },
+            userAnswer: d?.user_answer ?? null,
+            correct: !!d?.correct,
+          };
+        });
 
         let weakDocs: { id: string; title: string; slug: string }[] = [];
-        if (weakDocIds.size) {
-          const { data } = await supabase.from("documents").select("id, title, slug").in("id", Array.from(weakDocIds));
+        if (payload.weak_doc_ids?.length) {
+          const { data } = await supabase.from("documents").select("id, title, slug").in("id", payload.weak_doc_ids);
           weakDocs = data ?? [];
-        }
-
-        const { data: attemptInsert } = await supabase
-          .from("quiz_attempts")
-          .insert({
-            user_id: user.id,
-            quiz_id: quiz.id,
-            score,
-            level,
-            weak_areas: weakDocs.map((d) => ({ id: d.id, title: d.title, slug: d.slug })),
-            answers: details.map((d) => ({ question_id: d.question.id, answer: d.userAnswer, correct: d.correct })),
-          })
-          .select("id")
-          .maybeSingle();
-
-        if (auto && attemptInsert?.id) {
-          await supabase.from("assessment_violations").insert([
-            {
-              user_id: user.id,
-              quiz_id: quiz.id,
-              attempt_id: attemptInsert.id,
-              violation_type: "auto_submit",
-              details: { reason: "violation_limit_exceeded", count: violationsRef.current },
-            },
-          ]);
-        }
-
-        const { data: existing } = await supabase
-          .from("certifications")
-          .select("id, best_score, level, attempts_count")
-          .eq("user_id", user.id)
-          .eq("category", quiz.category)
-          .maybeSingle();
-
-        if (existing) {
-          await supabase
-            .from("certifications")
-            .update({
-              best_score: Math.max(existing.best_score, score),
-              level: highestLevel(existing.level as SkillLevel, level),
-              attempts_count: (existing.attempts_count ?? 0) + 1,
-              awarded_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
-        } else {
-          await supabase.from("certifications").insert({
-            user_id: user.id,
-            category: quiz.category,
-            best_score: score,
-            level,
-            attempts_count: 1,
-          });
         }
 
         const timeSpentSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
         setResult({
-          score,
-          level,
+          score: payload.score,
+          level: payload.level,
           details,
           weakDocs,
           timeSpentSec,
