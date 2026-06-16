@@ -234,14 +234,11 @@ export default function QuizTake() {
 
       // Persist
       try {
-        await supabase.from("assessment_violations").insert([
-          {
-            user_id: user.id,
-            quiz_id: quiz.id,
-            violation_type: String(type),
-            details: (details ?? {}) as any,
-          },
-        ]);
+        await supabase.rpc("record_assessment_violation", {
+          p_quiz_id: quiz.id,
+          p_violation_type: String(type),
+          p_details: (details ?? {}) as any,
+        });
       } catch {}
 
       if (count >= VIOLATION_LIMIT) {
