@@ -413,6 +413,19 @@ export type Database = {
           similarity: number
         }[]
       }
+      record_assessment_violation: {
+        Args: { p_details?: Json; p_quiz_id: string; p_violation_type: string }
+        Returns: undefined
+      }
+      score_quiz_attempt: {
+        Args: {
+          p_answers: Json
+          p_auto?: boolean
+          p_quiz_id: string
+          p_violations_count?: number
+        }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "engineer" | "viewer"
