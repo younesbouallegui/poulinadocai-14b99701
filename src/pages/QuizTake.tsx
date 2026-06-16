@@ -165,7 +165,7 @@ export default function QuizTake() {
       const auto = !!opts?.auto;
       autoSubmittedRef.current = auto;
       try {
-        const { data: rpcData, error: rpcErr } = await supabase.rpc("score_quiz_attempt", {
+        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("score_quiz_attempt", {
           p_quiz_id: quiz.id,
           p_answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? null })),
           p_auto: auto,
