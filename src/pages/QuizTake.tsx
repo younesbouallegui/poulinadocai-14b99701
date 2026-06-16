@@ -234,7 +234,7 @@ export default function QuizTake() {
 
       // Persist
       try {
-        await supabase.rpc("record_assessment_violation", {
+        await (supabase.rpc as any)("record_assessment_violation", {
           p_quiz_id: quiz.id,
           p_violation_type: String(type),
           p_details: (details ?? {}) as any,
