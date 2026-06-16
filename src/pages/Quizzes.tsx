@@ -24,16 +24,13 @@ export default function Quizzes() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("quizzes")
-        .select("id, title, description, category, passing_score, time_limit_minutes, quiz_questions(count)")
-        .order("created_at", { ascending: false });
-
-      const mapped = (data ?? []).map((q: any) => ({
-        ...q,
-        question_count: q.quiz_questions?.[0]?.count ?? 0,
-      }));
-      setQuizzes(mapped);
+      const { data, error } = await (supabase.rpc as any)("list_assessments");
+      if (error) {
+        console.error("Failed to load assessments", error);
+        setQuizzes([]);
+      } else {
+        setQuizzes((data ?? []) as Quiz[]);
+      }
       setLoading(false);
     })();
   }, []);

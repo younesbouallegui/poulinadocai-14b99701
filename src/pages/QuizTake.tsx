@@ -113,14 +113,11 @@ export default function QuizTake() {
     (async () => {
       const [{ data: q }, { data: qs }] = await Promise.all([
         supabase.from("quizzes").select("id, title, category, passing_score, time_limit_minutes").eq("id", id).maybeSingle(),
-        supabase
-          .from("quiz_questions")
-          .select("id, quiz_id, question_text, question_type, options, related_document_id, weight, position")
-          .eq("quiz_id", id)
-          .order("position", { ascending: true }),
+        (supabase.rpc as any)("get_assessment_questions", { p_quiz_id: id }),
       ]);
       const allQs = ((qs ?? []) as any[]).map((qq) => ({
         ...qq,
+        position: qq.question_position ?? qq.position,
         correct_answer: "",
         explanation: null,
         options: shuffle(qq.options),

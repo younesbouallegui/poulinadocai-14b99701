@@ -394,12 +394,38 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_assessment_questions: {
+        Args: { p_quiz_id: string }
+        Returns: {
+          id: string
+          options: Json
+          question_position: number
+          question_text: string
+          question_type: Database["public"]["Enums"]["question_type"]
+          quiz_id: string
+          related_document_id: string
+          weight: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      list_assessments: {
+        Args: never
+        Returns: {
+          category: string
+          created_at: string
+          description: string
+          id: string
+          passing_score: number
+          question_count: number
+          time_limit_minutes: number
+          title: string
+        }[]
       }
       match_document_chunks: {
         Args: { match_count?: number; query_embedding: string }
