@@ -224,7 +224,7 @@ export default function QuizTake() {
         setSubmitting(false);
       }
     },
-    [quiz, user, questions, answers, answeredCount, total, t, startedAt, storageKey]
+    [quiz, user, zabbixToken, questions, answers, answeredCount, total, t, startedAt, storageKey]
   );
 
   const recordViolation = useCallback(
