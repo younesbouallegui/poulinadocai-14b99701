@@ -74,7 +74,7 @@ const VIOLATION_LIMIT = 2;
 export default function QuizTake() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, zabbixToken } = useAuth();
   const navigate = useNavigate();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -162,13 +162,18 @@ export default function QuizTake() {
       const auto = !!opts?.auto;
       autoSubmittedRef.current = auto;
       try {
-        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("score_quiz_attempt", {
-          p_quiz_id: quiz.id,
-          p_answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? null })),
-          p_auto: auto,
-          p_violations_count: violationsRef.current,
+        const { data: fnData, error: rpcErr } = await supabase.functions.invoke("assessment-submit", {
+          body: {
+            action: "submit",
+            zabbix_token: zabbixToken,
+            quiz_id: quiz.id,
+            answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? null })),
+            auto,
+            violations_count: violationsRef.current,
+          },
         });
         if (rpcErr) throw rpcErr;
+        const rpcData = (fnData as any)?.data;
         const payload = rpcData as {
           attempt_id: string;
           score: number;
@@ -219,7 +224,7 @@ export default function QuizTake() {
         setSubmitting(false);
       }
     },
-    [quiz, user, questions, answers, answeredCount, total, t, startedAt, storageKey]
+    [quiz, user, zabbixToken, questions, answers, answeredCount, total, t, startedAt, storageKey]
   );
 
   const recordViolation = useCallback(
@@ -231,10 +236,14 @@ export default function QuizTake() {
 
       // Persist
       try {
-        await (supabase.rpc as any)("record_assessment_violation", {
-          p_quiz_id: quiz.id,
-          p_violation_type: String(type),
-          p_details: (details ?? {}) as any,
+        await supabase.functions.invoke("assessment-submit", {
+          body: {
+            action: "violation",
+            zabbix_token: zabbixToken,
+            quiz_id: quiz.id,
+            violation_type: String(type),
+            details: details ?? {},
+          },
         });
       } catch {}
 
@@ -248,7 +257,7 @@ export default function QuizTake() {
         setShowWarning(true);
       }
     },
-    [started, quiz, user, t, submit]
+    [started, quiz, user, zabbixToken, t, submit]
   );
 
   // Anti-cheat listeners (active only after start, before submit)
