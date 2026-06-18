@@ -162,13 +162,18 @@ export default function QuizTake() {
       const auto = !!opts?.auto;
       autoSubmittedRef.current = auto;
       try {
-        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("score_quiz_attempt", {
-          p_quiz_id: quiz.id,
-          p_answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? null })),
-          p_auto: auto,
-          p_violations_count: violationsRef.current,
+        const { data: fnData, error: rpcErr } = await supabase.functions.invoke("assessment-submit", {
+          body: {
+            action: "submit",
+            zabbix_token: zabbixToken,
+            quiz_id: quiz.id,
+            answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? null })),
+            auto,
+            violations_count: violationsRef.current,
+          },
         });
         if (rpcErr) throw rpcErr;
+        const rpcData = (fnData as any)?.data;
         const payload = rpcData as {
           attempt_id: string;
           score: number;
