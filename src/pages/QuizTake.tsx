@@ -236,10 +236,14 @@ export default function QuizTake() {
 
       // Persist
       try {
-        await (supabase.rpc as any)("record_assessment_violation", {
-          p_quiz_id: quiz.id,
-          p_violation_type: String(type),
-          p_details: (details ?? {}) as any,
+        await supabase.functions.invoke("assessment-submit", {
+          body: {
+            action: "violation",
+            zabbix_token: zabbixToken,
+            quiz_id: quiz.id,
+            violation_type: String(type),
+            details: details ?? {},
+          },
         });
       } catch {}
 
