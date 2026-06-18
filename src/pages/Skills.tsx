@@ -30,33 +30,23 @@ interface Attempt {
 
 export default function Skills() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, zabbixToken } = useAuth();
   const [certs, setCerts] = useState<Cert[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !zabbixToken) return;
     (async () => {
-      // The Supabase auth user id may differ from the AuthContext platform id
-      // (e.g. when signing in via Zabbix SSO). quiz_attempts/certifications
-      // are stored against auth.uid(), so use that for the queries.
-      const { data: authData } = await supabase.auth.getUser();
-      const uid = authData?.user?.id ?? user.id;
-      const [{ data: c }, { data: a }] = await Promise.all([
-        supabase.from("certifications").select("*").eq("user_id", uid),
-        supabase
-          .from("quiz_attempts")
-          .select("id, score, level, completed_at, weak_areas, quizzes(title, category)")
-          .eq("user_id", uid)
-          .order("completed_at", { ascending: false })
-          .limit(20),
-      ]);
-      setCerts((c ?? []) as unknown as Cert[]);
-      setAttempts((a ?? []) as unknown as Attempt[]);
+      const { data, error } = await supabase.functions.invoke("assessment-submit", {
+        body: { action: "history", zabbix_token: zabbixToken },
+      });
+      if (error) console.error("history error", error);
+      setCerts(((data?.certs ?? []) as unknown) as Cert[]);
+      setAttempts(((data?.attempts ?? []) as unknown) as Attempt[]);
       setLoading(false);
     })();
-  }, [user]);
+  }, [user, zabbixToken]);
 
   const overallLevel: SkillLevel = certs.length
     ? certs.reduce<SkillLevel>((acc, c) => highestLevel(acc, c.level), "beginner")
