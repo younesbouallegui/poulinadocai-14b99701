@@ -74,7 +74,7 @@ const VIOLATION_LIMIT = 2;
 export default function QuizTake() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, zabbixToken } = useAuth();
   const navigate = useNavigate();
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
