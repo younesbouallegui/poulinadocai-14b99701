@@ -257,7 +257,7 @@ export default function QuizTake() {
         setShowWarning(true);
       }
     },
-    [started, quiz, user, t, submit]
+    [started, quiz, user, zabbixToken, t, submit]
   );
 
   // Anti-cheat listeners (active only after start, before submit)
