@@ -3,11 +3,24 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { zabbixRpc, zabbixUserIdToUuid } from "../_shared/zabbix.ts";
 
 async function resolveUserId(zabbix_token: string): Promise<string> {
-  // Validate the Zabbix session and resolve the corresponding userid.
   const users = await zabbixRpc("user.get", { output: ["userid"] }, zabbix_token);
   const uid = users?.[0]?.userid;
   if (!uid) throw new Error("Invalid Zabbix session");
   return await zabbixUserIdToUuid(String(uid));
+}
+
+function sb() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
@@ -15,59 +28,101 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, zabbix_token, quiz_id } = body ?? {};
-    if (!action || !zabbix_token || !quiz_id) {
-      return new Response(JSON.stringify({ error: "Missing fields" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { action, zabbix_token } = body ?? {};
+    if (!action || !zabbix_token) return json({ error: "Missing fields" }, 400);
 
     const platformUserId = await resolveUserId(String(zabbix_token));
-
-    const sb = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const client = sb();
 
     if (action === "submit") {
-      const { data, error } = await sb.rpc("score_quiz_attempt_as", {
+      if (!body.quiz_id) return json({ error: "Missing quiz_id" }, 400);
+      const { data, error } = await client.rpc("score_quiz_attempt_as", {
         p_user_id: platformUserId,
-        p_quiz_id: quiz_id,
+        p_quiz_id: body.quiz_id,
         p_answers: body.answers ?? [],
         p_auto: !!body.auto,
         p_violations_count: body.violations_count ?? 0,
       });
       if (error) throw error;
-      return new Response(JSON.stringify({ data }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ data });
     }
 
     if (action === "violation") {
-      const { error } = await sb.rpc("record_assessment_violation_as", {
+      if (!body.quiz_id) return json({ error: "Missing quiz_id" }, 400);
+      const { error } = await client.rpc("record_assessment_violation_as", {
         p_user_id: platformUserId,
-        p_quiz_id: quiz_id,
+        p_quiz_id: body.quiz_id,
         p_violation_type: String(body.violation_type ?? "unknown"),
         p_details: body.details ?? {},
       });
       if (error) throw error;
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return json({ ok: true });
+    }
+
+    if (action === "history") {
+      const [{ data: certs, error: cErr }, { data: attempts, error: aErr }] = await Promise.all([
+        client.from("certifications").select("*").eq("user_id", platformUserId),
+        client
+          .from("quiz_attempts")
+          .select("id, score, level, completed_at, weak_areas, quizzes(title, category)")
+          .eq("user_id", platformUserId)
+          .order("completed_at", { ascending: false })
+          .limit(20),
+      ]);
+      if (cErr) throw cErr;
+      if (aErr) throw aErr;
+      return json({ certs: certs ?? [], attempts: attempts ?? [] });
+    }
+
+    if (action === "admin_data") {
+      // Verify admin role
+      const { data: roles, error: rErr } = await client
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", platformUserId);
+      if (rErr) throw rErr;
+      if (!(roles ?? []).some((r: any) => r.role === "admin")) {
+        return json({ error: "forbidden" }, 403);
+      }
+
+      const [{ data: certs }, { data: attempts }, { data: violations }, { data: quizzes }] = await Promise.all([
+        client.from("certifications").select("user_id, category, level, best_score, awarded_at"),
+        client
+          .from("quiz_attempts")
+          .select("id, user_id, quiz_id, score, completed_at, weak_areas, quizzes(title, category)")
+          .order("completed_at", { ascending: false })
+          .limit(200),
+        client
+          .from("assessment_violations")
+          .select("id, user_id, quiz_id, violation_type, details, created_at")
+          .order("created_at", { ascending: false })
+          .limit(100),
+        client.from("quizzes").select("id, title, passing_score"),
+      ]);
+
+      const userIds = Array.from(new Set([
+        ...(certs ?? []).map((r: any) => r.user_id),
+        ...(attempts ?? []).map((r: any) => r.user_id),
+        ...(violations ?? []).map((r: any) => r.user_id),
+      ]));
+      let profiles: any[] = [];
+      if (userIds.length) {
+        const { data: profs } = await client.from("profiles").select("id, display_name").in("id", userIds);
+        profiles = profs ?? [];
+      }
+
+      return json({
+        certs: certs ?? [],
+        attempts: attempts ?? [],
+        violations: violations ?? [],
+        quizzes: quizzes ?? [],
+        profiles,
       });
     }
 
-    return new Response(JSON.stringify({ error: "Unknown action" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "Unknown action" }, 400);
   } catch (e) {
     console.error("assessment-submit error", e);
-    return new Response(JSON.stringify({ error: String((e as Error).message ?? e) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: String((e as Error).message ?? e) }, 500);
   }
 });
