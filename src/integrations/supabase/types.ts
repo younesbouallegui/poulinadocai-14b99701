@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      assessment_results: {
+        Row: {
+          assessment_id: string
+          attempt_id: string | null
+          id: string
+          level: Database["public"]["Enums"]["skill_level"]
+          score: number
+          skills: Json
+          submitted_at: string
+          user_id: string
+        }
+        Insert: {
+          assessment_id: string
+          attempt_id?: string | null
+          id?: string
+          level: Database["public"]["Enums"]["skill_level"]
+          score: number
+          skills?: Json
+          submitted_at?: string
+          user_id: string
+        }
+        Update: {
+          assessment_id?: string
+          attempt_id?: string | null
+          id?: string
+          level?: Database["public"]["Enums"]["skill_level"]
+          score?: number
+          skills?: Json
+          submitted_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assessment_results_assessment_id_fkey"
+            columns: ["assessment_id"]
+            isOneToOne: false
+            referencedRelation: "quizzes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assessment_results_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "quiz_attempts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assessment_violations: {
         Row: {
           attempt_id: string | null

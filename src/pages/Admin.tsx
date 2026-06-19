@@ -35,8 +35,11 @@ export default function Admin() {
   const [certs, setCerts] = useState<CertRow[]>([]);
   const [attempts, setAttempts] = useState<AttemptRow[]>([]);
   const [violations, setViolations] = useState<any[]>([]);
+  const [results, setResults] = useState<any[]>([]);
   const [quizzesMap, setQuizzesMap] = useState<Map<string, { title: string; passing_score: number }>>(new Map());
+  const [profileMap, setProfileMap] = useState<Map<string, string | null>>(new Map());
   const [loading, setLoading] = useState(true);
+
 
   useEffect(() => {
     if (!isAdmin || !zabbixToken) return;
@@ -54,16 +57,20 @@ export default function Admin() {
       const v = data?.violations ?? [];
       const qz = data?.quizzes ?? [];
       const profs = data?.profiles ?? [];
+      const r = data?.results ?? [];
 
       setQuizzesMap(new Map(qz.map((q: any) => [q.id, { title: q.title, passing_score: q.passing_score }])));
-      const profileMap = new Map<string, string | null>(profs.map((p: any) => [p.id, p.display_name]));
+      const pMap = new Map<string, string | null>(profs.map((p: any) => [p.id, p.display_name]));
+      setProfileMap(pMap);
 
-      setCerts(c.map((r: any) => ({ ...r, profiles: { display_name: profileMap.get(r.user_id) ?? null } })));
-      setAttempts(a.map((r: any) => ({ ...r, profiles: { display_name: profileMap.get(r.user_id) ?? null } })));
-      setViolations(v.map((r: any) => ({ ...r, display_name: profileMap.get(r.user_id) ?? null })));
+      setCerts(c.map((r: any) => ({ ...r, profiles: { display_name: pMap.get(r.user_id) ?? null } })));
+      setAttempts(a.map((r: any) => ({ ...r, profiles: { display_name: pMap.get(r.user_id) ?? null } })));
+      setViolations(v.map((r: any) => ({ ...r, display_name: pMap.get(r.user_id) ?? null })));
+      setResults(r);
       setLoading(false);
     })();
   }, [isAdmin, zabbixToken]);
+
 
   if (authLoading) return null;
   if (!isAdmin) return <Navigate to="/" replace />;
@@ -301,6 +308,48 @@ export default function Admin() {
             </div>
           </Card>
         )}
+      </div>
+
+      {/* Full assessment history (chronological) */}
+      <div className="animate-fade-up mt-8">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+          Full Assessment History ({results.length})
+        </h2>
+        {results.length === 0 ? (
+          <Card className="p-8 text-center text-sm text-muted-foreground">No submissions yet</Card>
+        ) : (
+          <Card>
+            <div className="divide-y divide-border max-h-[520px] overflow-y-auto">
+              {results.map((r) => {
+                const quiz = quizzesMap.get(r.assessment_id);
+                const title = r.skills?.title ?? quiz?.title ?? r.assessment_id.slice(0, 8);
+                const category = r.skills?.category;
+                return (
+                  <div key={r.id} className="flex items-center justify-between gap-4 px-5 py-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate">
+                        {profileMap.get(r.user_id) ?? r.user_id.slice(0, 8)}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {title} · {new Date(r.submitted_at).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-sm font-medium">{r.score}/100</span>
+                      <SkillBadge level={r.level as SkillLevel} />
+                      {category && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {t(`docs.categories.${category}`, { defaultValue: category }) as string}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
       </div>
     </div>
   );
