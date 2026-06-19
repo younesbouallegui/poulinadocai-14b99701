@@ -57,16 +57,20 @@ export default function Admin() {
       const v = data?.violations ?? [];
       const qz = data?.quizzes ?? [];
       const profs = data?.profiles ?? [];
+      const r = data?.results ?? [];
 
       setQuizzesMap(new Map(qz.map((q: any) => [q.id, { title: q.title, passing_score: q.passing_score }])));
-      const profileMap = new Map<string, string | null>(profs.map((p: any) => [p.id, p.display_name]));
+      const pMap = new Map<string, string | null>(profs.map((p: any) => [p.id, p.display_name]));
+      setProfileMap(pMap);
 
-      setCerts(c.map((r: any) => ({ ...r, profiles: { display_name: profileMap.get(r.user_id) ?? null } })));
-      setAttempts(a.map((r: any) => ({ ...r, profiles: { display_name: profileMap.get(r.user_id) ?? null } })));
-      setViolations(v.map((r: any) => ({ ...r, display_name: profileMap.get(r.user_id) ?? null })));
+      setCerts(c.map((r: any) => ({ ...r, profiles: { display_name: pMap.get(r.user_id) ?? null } })));
+      setAttempts(a.map((r: any) => ({ ...r, profiles: { display_name: pMap.get(r.user_id) ?? null } })));
+      setViolations(v.map((r: any) => ({ ...r, display_name: pMap.get(r.user_id) ?? null })));
+      setResults(r);
       setLoading(false);
     })();
   }, [isAdmin, zabbixToken]);
+
 
   if (authLoading) return null;
   if (!isAdmin) return <Navigate to="/" replace />;
