@@ -31,7 +31,7 @@ Deno.serve(async (req) => {
     const { action, zabbix_token } = body ?? {};
     if (!action || !zabbix_token) return json({ error: "Missing fields" }, 400);
 
-    const platformUserId = await resolveUserId(String(zabbix_token));
+    const { id: platformUserId, role: userRole } = await resolveUser(String(zabbix_token));
     const client = sb();
 
     if (action === "submit") {
