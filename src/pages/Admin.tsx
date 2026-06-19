@@ -339,7 +339,7 @@ export default function Admin() {
                       <SkillBadge level={r.level as SkillLevel} />
                       {category && (
                         <Badge variant="outline" className="text-[10px]">
-                          {t(`docs.categories.${category}`, category)}
+                          {t(`docs.categories.${category}`, { defaultValue: category }) as string}
                         </Badge>
                       )}
                     </div>
