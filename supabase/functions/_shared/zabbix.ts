@@ -44,8 +44,9 @@ export async function zabbixRpc(
     "Content-Type": "application/json-rpc",
   };
   // Zabbix 6.4+ uses Bearer header; Zabbix 7.2+ rejects "auth" in body.
-  // user.login and apiinfo.version never take auth.
-  const noAuthMethods = new Set(["user.login", "apiinfo.version"]);
+  // user.checkAuthentication specifically validates the sessionid param and
+  // Zabbix rejects this method when an Authorization header is also present.
+  const noAuthMethods = new Set(["user.login", "apiinfo.version", "user.checkAuthentication"]);
   if (auth && !noAuthMethods.has(method)) {
     headers.Authorization = `Bearer ${auth}`;
   }
