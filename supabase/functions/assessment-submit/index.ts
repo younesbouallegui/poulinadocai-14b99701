@@ -3,17 +3,23 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { mapZabbixRole, zabbixRpc, zabbixUserIdToUuid } from "../_shared/zabbix.ts";
 
 async function resolveUser(zabbix_token: string): Promise<{ id: string; role: "admin" | "editor" | "viewer" }> {
-  // user.checkAuthentication returns the session's OWN user (not all users).
-  // Using user.get without filters returns ALL users for super-admin, which
-  // would resolve as the wrong identity.
+  // user.checkAuthentication validates the session and returns the session's
+  // own user id. It must be called without an Authorization header in Zabbix.
   const me = await zabbixRpc(
     "user.checkAuthentication",
     { sessionid: zabbix_token },
-    zabbix_token,
   );
   const userid = me?.userid;
-  const roleid = me?.roleid;
   if (!userid) throw new Error("Invalid Zabbix session");
+
+  // Fetch role for exactly this user. Avoid unfiltered user.get because a
+  // super-admin session can receive every user and resolve the wrong role.
+  const users = await zabbixRpc(
+    "user.get",
+    { output: ["userid", "roleid"], userids: [String(userid)] },
+    zabbix_token,
+  );
+  const roleid = users?.[0]?.roleid ?? me?.roleid;
   return { id: await zabbixUserIdToUuid(String(userid)), role: mapZabbixRole(roleid) };
 }
 
