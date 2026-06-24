@@ -383,6 +383,36 @@ export type Database = {
           },
         ]
       }
+      sso_exchange_log: {
+        Row: {
+          created_at: string
+          direction: string
+          error: string | null
+          id: string
+          succeeded: boolean
+          username: string | null
+          zabbix_user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          direction: string
+          error?: string | null
+          id?: string
+          succeeded: boolean
+          username?: string | null
+          zabbix_user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          direction?: string
+          error?: string | null
+          id?: string
+          succeeded?: boolean
+          username?: string | null
+          zabbix_user_id?: string | null
+        }
+        Relationships: []
+      }
       sso_handoff_codes: {
         Row: {
           code_hash: string
@@ -413,6 +443,30 @@ export type Database = {
           zabbix_token?: string
           zabbix_userid?: string
           zabbix_username?: string | null
+        }
+        Relationships: []
+      }
+      sso_nonces: {
+        Row: {
+          audience: string
+          consumed_at: string
+          expires_at: string
+          issuer: string
+          nonce: string
+        }
+        Insert: {
+          audience: string
+          consumed_at?: string
+          expires_at: string
+          issuer: string
+          nonce: string
+        }
+        Update: {
+          audience?: string
+          consumed_at?: string
+          expires_at?: string
+          issuer?: string
+          nonce?: string
         }
         Relationships: []
       }
