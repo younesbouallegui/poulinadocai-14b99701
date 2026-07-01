@@ -127,15 +127,8 @@ export function newNonce(): string {
 
 export function ssoCorsHeaders(req?: Request): Record<string, string> {
   const origin = req?.headers.get("origin") ?? "*";
-  const hubOrigin = Deno.env.get("HUB_ORIGIN") ?? "https://poulinaaihub.younesblg.com";
-  const allowedOrigins = new Set([
-    hubOrigin,
-    "https://poulinaaihub.younesblg.com",
-    "https://aiknowledge.younesblg.com",
-    "http://localhost:8080",
-  ]);
   return {
-    "Access-Control-Allow-Origin": origin === "null" || origin === "*" || allowedOrigins.has(origin) ? origin : hubOrigin,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Vary": "Origin",
